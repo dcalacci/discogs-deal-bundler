@@ -1,0 +1,744 @@
+// Discogs Seller Filter Content Script
+(function() {
+  'use strict';
+
+  // Function to create a unique identifier for a listing
+  function createListingId(listing) {
+    // Try to find unique identifiers in the listing
+    const href = listing.querySelector('a[href*="/sell/item/"]')?.getAttribute('href');
+    if (href) {
+      const match = href.match(/\/sell\/item\/(\d+)/);
+      if (match) {
+        return `item_${match[1]}`;
+      }
+    }
+    
+    // Fallback: use a combination of text content and seller
+    const textContent = listing.textContent.trim().substring(0, 100);
+    const sellerSpan = listing.querySelector('span');
+    const sellerText = sellerSpan ? sellerSpan.textContent.trim() : '';
+    
+    // Create a hash-like identifier
+    return `listing_${textContent.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '')}_${sellerText.replace(/\s+/g, '_')}`;
+  }
+
+  // Function to debug page structure
+  function debugPageStructure() {
+    console.log('=== DISCOGS PAGE DEBUG INFO ===');
+    console.log('Current URL:', window.location.href);
+    console.log('Page title:', document.title);
+    
+    // Check for common Discogs elements
+    const commonElements = [
+      'body',
+      'main',
+      '.content',
+      '.main-content',
+      '.page-content',
+      '.marketplace',
+      '.shop',
+      '.listings',
+      '.results'
+    ];
+    
+    commonElements.forEach(selector => {
+      const elements = document.querySelectorAll(selector);
+      if (elements.length > 0) {
+        console.log(`Found ${elements.length} elements with selector: ${selector}`);
+      }
+    });
+    
+    // Look for any elements that might contain listings
+    const potentialContainers = document.querySelectorAll('div, section, article, ul, ol');
+    console.log(`Found ${potentialContainers.length} potential container elements`);
+    
+    // Check for any links that might be seller links
+    const allLinks = document.querySelectorAll('a');
+    const sellerLinks = Array.from(allLinks).filter(link => {
+      const href = link.getAttribute('href') || '';
+      return href.includes('/seller/') || href.includes('/user/');
+    });
+    console.log(`Found ${sellerLinks.length} potential seller links`);
+    
+    if (sellerLinks.length > 0) {
+      console.log('Sample seller links:');
+      sellerLinks.slice(0, 3).forEach(link => {
+        console.log(`- ${link.textContent.trim()} (${link.href})`);
+      });
+    }
+  }
+
+  // Function to show user messages
+  function showUserMessage(message, type = 'info') {
+    // Remove any existing messages
+    const existingMessage = document.getElementById('seller-filter-message');
+    if (existingMessage) {
+      existingMessage.remove();
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.id = 'seller-filter-message';
+    messageDiv.style.cssText = `
+      background: ${type === 'error' ? '#ffebee' : '#e3f2fd'};
+      color: ${type === 'error' ? '#c62828' : '#1565c0'};
+      border: 1px solid ${type === 'error' ? '#ffcdd2' : '#bbdefb'};
+      border-radius: 4px;
+      padding: 12px;
+      margin: 10px 0;
+      font-size: 14px;
+      text-align: center;
+    `;
+    messageDiv.textContent = message;
+    
+    // Try to insert in the sidebar, fallback to top of page
+    const sidebar = document.querySelector('.marketplace_filters') || 
+                    document.querySelector('#page_aside') ||
+                    document.querySelector('.filters');
+    
+    if (sidebar) {
+      sidebar.insertBefore(messageDiv, sidebar.firstChild);
+    } else {
+      document.body.insertBefore(messageDiv, document.body.firstChild);
+    }
+  }
+
+  // Wait for page to be fully loaded
+  function init() {
+    // Check if we're on the right page
+    if (!window.location.href.includes('discogs.com/shop/mywants')) {
+      return;
+    }
+
+    // Try multiple times with increasing delays for dynamic content
+    const tryAnalyze = (attempt = 1, maxAttempts = 5) => {
+      console.log(`Attempt ${attempt} to analyze sellers...`);
+      
+      // Check if we have any content loaded
+      const hasContent = document.querySelectorAll('div, section, article').length > 10;
+      
+      if (hasContent) {
+        analyzeSellersAndCreateFilter();
+      } else if (attempt < maxAttempts) {
+        console.log(`Not enough content loaded yet, retrying in ${attempt * 1000}ms...`);
+        setTimeout(() => tryAnalyze(attempt + 1, maxAttempts), attempt * 1000);
+      } else {
+        console.log('Max attempts reached, trying anyway...');
+        analyzeSellersAndCreateFilter();
+      }
+    };
+
+    // Start trying after initial delay
+    setTimeout(() => tryAnalyze(), 1000);
+  }
+
+  function analyzeSellersAndCreateFilter() {
+    // Try multiple selectors to find marketplace listings
+    const listingSelectors = [
+      '.feed-item',  // This is the actual class used on Discogs
+      '.shortcut_navigable',
+      '.marketplace_listing',
+      '.listing',
+      '.item',
+      '.result',
+      '[class*="listing"]',
+      '[class*="item"]',
+      '[class*="result"]',
+      '.card',
+      '.product',
+      'tr[data-listing-id]',
+      'div[data-listing-id]',
+      '.marketplace-item',
+      '.shop-item'
+    ];
+    
+    let listings = [];
+    let usedSelector = '';
+    
+    for (const selector of listingSelectors) {
+      listings = document.querySelectorAll(selector);
+      if (listings.length > 0) {
+        usedSelector = selector;
+        console.log(`Found ${listings.length} listings using selector: ${selector}`);
+        break;
+      }
+    }
+    
+    if (listings.length === 0) {
+      // Run debug function to understand page structure
+      debugPageStructure();
+      
+      console.log('No listings found with any selector. Available elements:');
+      console.log('All divs:', document.querySelectorAll('div').length);
+      console.log('All elements with "listing":', document.querySelectorAll('[class*="listing"]').length);
+      console.log('All elements with "item":', document.querySelectorAll('[class*="item"]').length);
+      console.log('All elements with "result":', document.querySelectorAll('[class*="result"]').length);
+      
+      // Let's also check what's actually on the page
+      const allDivs = document.querySelectorAll('div');
+      const divClasses = new Set();
+      allDivs.forEach(div => {
+        if (div.className) {
+          div.className.split(' ').forEach(cls => divClasses.add(cls));
+        }
+      });
+      console.log('Available CSS classes:', Array.from(divClasses).slice(0, 20));
+      
+      // Try one more approach - look for any elements that might contain seller info
+      const sellerLinks = document.querySelectorAll('a[href*="/seller/"], a[href*="/user/"]');
+      if (sellerLinks.length > 0) {
+        console.log(`Found ${sellerLinks.length} seller links, trying alternative approach...`);
+        // Create a virtual listing for each seller link
+        listings = Array.from(sellerLinks).map(link => {
+          const container = document.createElement('div');
+          container.className = 'virtual-listing';
+          container.appendChild(link.cloneNode(true));
+          return container;
+        });
+        console.log(`Created ${listings.length} virtual listings from seller links`);
+      } else {
+        showUserMessage('No marketplace listings found. Make sure you have items in your wantlist and are on the correct page. Check console for debugging info.', 'error');
+        return;
+      }
+    }
+    
+    console.log(`Found ${listings.length} listings to analyze using selector: ${usedSelector}`);
+
+    // Count items per seller
+    const sellerCounts = {};
+    const sellerToListings = {};
+    const processedListings = new Set(); // Track processed listings to avoid duplicates
+
+    listings.forEach(listing => {
+      // Create a unique identifier for this listing to avoid duplicates
+      const listingId = createListingId(listing);
+      if (processedListings.has(listingId)) {
+        console.log('Skipping duplicate listing:', listingId);
+        return; // Skip this listing as it's a duplicate
+      }
+      processedListings.add(listingId);
+      // Try multiple selectors to find seller name
+      let sellerName = null;
+      
+      // Primary method: Look for "Seller: [name]" pattern in spans
+      const allSpans = listing.querySelectorAll('span');
+      for (const span of allSpans) {
+        const text = span.textContent.trim();
+        if (text.startsWith('Seller: ')) {
+          sellerName = text.replace('Seller: ', '').trim();
+          
+          // Clean up seller name - remove various suffixes
+          sellerName = sellerName.replace(/\s+has\s+\d+\s+more\s+items?\s+I\s+want.*$/i, '');
+          sellerName = sellerName.replace(/\s+has\s+\d+\s+more\s+items?.*$/i, '');
+          sellerName = sellerName.replace(/\s+\(\d+\.\d+%\)$/, ''); // Remove percentage
+          sellerName = sellerName.replace(/\s+\(\d+%\)$/, ''); // Remove percentage without decimal
+          sellerName = sellerName.replace(/\s+\(\d+\.\d+\)$/, ''); // Remove decimal number
+          sellerName = sellerName.replace(/\s+\(\d+\)$/, ''); // Remove number in parentheses
+          sellerName = sellerName.trim();
+          
+          // Skip if the seller name is empty or looks like a message
+          if (sellerName && 
+              !sellerName.toLowerCase().includes('has') && 
+              !sellerName.toLowerCase().includes('more items') &&
+              !sellerName.toLowerCase().includes('more item') &&
+              sellerName.length > 1) {
+            break;
+          } else {
+            sellerName = null; // Reset if it's not a real seller name
+          }
+        }
+      }
+      
+      // Fallback: Look for seller links
+      if (!sellerName) {
+        const sellerLink = listing.querySelector('a.seller_info strong');
+        if (sellerLink) {
+          sellerName = sellerLink.textContent.trim();
+        }
+      }
+      
+      // Additional fallback selectors for different page structures
+      if (!sellerName) {
+        const selectors = [
+          'a.seller_info',
+          '.seller_info a',
+          '.seller_name',
+          '.seller-name',
+          '[data-seller]',
+          '.seller a',
+          'a[href*="/seller/"]'
+        ];
+        
+        for (const selector of selectors) {
+          const element = listing.querySelector(selector);
+          if (element) {
+            sellerName = element.textContent.trim();
+            break;
+          }
+        }
+      }
+      
+      // Additional fallback: look for any link that might contain seller info
+      if (!sellerName) {
+        const allLinks = listing.querySelectorAll('a');
+        for (const link of allLinks) {
+          const href = link.getAttribute('href');
+          if (href && href.includes('/seller/')) {
+            sellerName = link.textContent.trim();
+            break;
+          }
+        }
+      }
+      
+      if (sellerName && sellerName.length > 0) {
+        // Clean up seller name (remove extra whitespace, etc.)
+        sellerName = sellerName.replace(/\s+/g, ' ').trim();
+        
+        // Initialize if not exists
+        if (!sellerCounts[sellerName]) {
+          sellerCounts[sellerName] = 0;
+          sellerToListings[sellerName] = [];
+        }
+        
+        sellerCounts[sellerName]++;
+        sellerToListings[sellerName].push(listing);
+        console.log(`✅ Added listing for seller: ${sellerName} (total: ${sellerCounts[sellerName]})`);
+      } else {
+        console.log('❌ Could not find valid seller name for listing:', listing);
+        console.log('Listing HTML:', listing.innerHTML.substring(0, 200) + '...');
+      }
+    });
+
+    // Sort sellers by count (descending)
+    const sortedSellers = Object.entries(sellerCounts)
+      .sort((a, b) => b[1] - a[1]);
+
+    if (sortedSellers.length === 0) {
+      console.log('No sellers found');
+      return;
+    }
+
+    // Store data globally for dynamic updates
+    currentSellerData = { sortedSellers, sellerToListings };
+    
+    // Create the filter UI
+    createFilterUI(sortedSellers, sellerToListings);
+  }
+
+  function createFilterUI(sortedSellers, sellerToListings) {
+    // Check if filter already exists and remove it
+    const existingFilter = document.getElementById('seller-filter-container');
+    if (existingFilter) {
+      console.log('Removing existing filter to update with new data...');
+      existingFilter.remove();
+    }
+    
+    // Find the sidebar (left side of the page)
+    const sidebar = document.querySelector('.marketplace_filters') || 
+                    document.querySelector('#page_aside') ||
+                    document.querySelector('.filters') ||
+                    document.querySelector('.sidebar') ||
+                    document.querySelector('[class*="sidebar"]') ||
+                    document.querySelector('[class*="filter"]');
+
+    if (!sidebar) {
+      console.log('Could not find sidebar to inject filter');
+      showUserMessage('Could not find the sidebar to add the filter. The page structure may have changed.', 'error');
+      return;
+    }
+
+    // Create filter container
+    const filterContainer = document.createElement('div');
+    filterContainer.id = 'seller-filter-container';
+    filterContainer.className = 'section_header';
+
+    // Create header with refresh button
+    const header = document.createElement('h3');
+    header.textContent = 'Filter by Seller';
+    header.style.cursor = 'pointer';
+    
+    // Add refresh button
+    const refreshBtn = document.createElement('button');
+    refreshBtn.textContent = '🔄';
+    refreshBtn.title = 'Refresh filter (click if new items were loaded)';
+    refreshBtn.style.cssText = `
+      float: right;
+      background: #0074e0;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 10px;
+    `;
+    refreshBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      console.log('🔄 Manual refresh triggered by user');
+      
+      // Force a complete reanalysis by clearing current data
+      currentSellerData = null;
+      lastListingCount = 0;
+      
+      // Re-run the entire analysis
+      analyzeSellersAndCreateFilter();
+    });
+    
+    header.appendChild(refreshBtn);
+    filterContainer.appendChild(header);
+
+    // Create sellers list
+    const sellersList = document.createElement('div');
+    sellersList.id = 'sellers-list';
+    sellersList.className = 'sellers-list';
+
+    // Track selected sellers
+    const selectedSellers = new Set();
+    
+    // Load saved selections from localStorage
+    const savedSelections = localStorage.getItem('discogs-seller-filter-selections');
+    if (savedSelections) {
+      try {
+        const parsed = JSON.parse(savedSelections);
+        parsed.forEach(seller => selectedSellers.add(seller));
+      } catch (e) {
+        console.log('Could not parse saved selections:', e);
+      }
+    }
+
+    // Function to save selections to localStorage
+    function saveSelections() {
+      const selections = Array.from(selectedSellers);
+      localStorage.setItem('discogs-seller-filter-selections', JSON.stringify(selections));
+    }
+
+    // Add "Show All" button
+    const showAllBtn = document.createElement('div');
+    showAllBtn.className = 'seller-item show-all-btn';
+    showAllBtn.innerHTML = `
+      <label>
+        <input type="checkbox" ${selectedSellers.size === 0 ? 'checked' : ''}> 
+        <span class="seller-name">Show All</span>
+      </label>
+    `;
+    sellersList.appendChild(showAllBtn);
+
+    const showAllCheckbox = showAllBtn.querySelector('input');
+    showAllCheckbox.addEventListener('change', () => {
+      if (showAllCheckbox.checked) {
+        // Uncheck all sellers and show everything
+        selectedSellers.clear();
+        currentSelectedSellers.clear();
+        isFilterActive = false;
+        document.querySelectorAll('.seller-item input[type="checkbox"]').forEach(cb => {
+          if (cb !== showAllCheckbox) cb.checked = false;
+        });
+        showAllListings();
+        saveSelections();
+      }
+    });
+
+    // Add each seller
+    sortedSellers.forEach(([seller, count]) => {
+      const sellerItem = document.createElement('div');
+      sellerItem.className = 'seller-item';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `seller-${seller.replace(/\s+/g, '-')}`;
+      checkbox.checked = selectedSellers.has(seller);
+      
+      const label = document.createElement('label');
+      label.htmlFor = checkbox.id;
+      
+      const sellerName = document.createElement('span');
+      sellerName.className = 'seller-name';
+      sellerName.textContent = seller;
+      
+      const sellerCount = document.createElement('span');
+      sellerCount.className = 'seller-count';
+      sellerCount.textContent = `(${count})`;
+      
+      label.appendChild(checkbox);
+      label.appendChild(sellerName);
+      label.appendChild(sellerCount);
+      sellerItem.appendChild(label);
+      
+      // Add click handler
+      checkbox.addEventListener('change', () => {
+        // Uncheck "Show All"
+        showAllCheckbox.checked = false;
+        
+        if (checkbox.checked) {
+          selectedSellers.add(seller);
+          currentSelectedSellers.add(seller);
+        } else {
+          selectedSellers.delete(seller);
+          currentSelectedSellers.delete(seller);
+        }
+        
+        // Update filter state
+        isFilterActive = selectedSellers.size > 0;
+        
+        // If no sellers selected, check "Show All"
+        if (selectedSellers.size === 0) {
+          showAllCheckbox.checked = true;
+          isFilterActive = false;
+          showAllListings();
+        } else {
+          filterListings(selectedSellers, sellerToListings);
+        }
+        
+        // Save selections
+        saveSelections();
+      });
+      
+      sellersList.appendChild(sellerItem);
+    });
+
+    filterContainer.appendChild(sellersList);
+
+    // Insert at the top of the sidebar
+    sidebar.insertBefore(filterContainer, sidebar.firstChild);
+    
+    // Apply saved filters if any
+    if (selectedSellers.size > 0) {
+      filterListings(selectedSellers, sellerToListings);
+    }
+    
+    // Show success message
+    console.log(`Seller filter created successfully with ${sortedSellers.length} sellers`);
+    showUserMessage(`Filter created! Found ${sortedSellers.length} sellers with ${Object.values(sellerToListings).flat().length} total items.`);
+
+    // Add collapse/expand functionality
+    let isExpanded = true;
+    header.addEventListener('click', () => {
+      isExpanded = !isExpanded;
+      sellersList.style.display = isExpanded ? 'block' : 'none';
+      header.style.opacity = isExpanded ? '1' : '0.7';
+    });
+  }
+
+  function filterListings(selectedSellers, sellerToListings) {
+    // Hide all listings first - try multiple selectors
+    const listingSelectors = ['.feed-item', '.shortcut_navigable', '.marketplace_listing', '.listing', '.item'];
+    let allListings = [];
+    
+    for (const selector of listingSelectors) {
+      const listings = document.querySelectorAll(selector);
+      if (listings.length > 0) {
+        allListings = listings;
+        console.log(`Filtering ${listings.length} listings using selector: ${selector}`);
+        break;
+      }
+    }
+    
+    allListings.forEach(listing => {
+      listing.style.display = 'none';
+    });
+
+    // Show only selected sellers' listings
+    selectedSellers.forEach(seller => {
+      if (sellerToListings[seller]) {
+        sellerToListings[seller].forEach(listing => {
+          listing.style.display = '';
+        });
+      }
+    });
+
+    // Update the results count if it exists
+    updateResultsCount(selectedSellers, sellerToListings);
+  }
+
+  function showAllListings() {
+    // Try multiple selectors to find all listings
+    const listingSelectors = ['.feed-item', '.shortcut_navigable', '.marketplace_listing', '.listing', '.item'];
+    
+    for (const selector of listingSelectors) {
+      const listings = document.querySelectorAll(selector);
+      if (listings.length > 0) {
+        listings.forEach(listing => {
+          listing.style.display = '';
+        });
+        console.log(`Showing all ${listings.length} listings using selector: ${selector}`);
+        break;
+      }
+    }
+    
+    updateResultsCount(null, null);
+  }
+
+  function updateResultsCount(selectedSellers, sellerToListings) {
+    const resultsHeader = document.querySelector('.pagination_total');
+    if (!resultsHeader) return;
+
+    if (!selectedSellers || selectedSellers.size === 0) {
+      // Restore original count - try multiple selectors
+      const listingSelectors = ['.feed-item', '.shortcut_navigable', '.marketplace_listing', '.listing', '.item'];
+      let allListings = [];
+      
+      for (const selector of listingSelectors) {
+        const listings = document.querySelectorAll(selector);
+        if (listings.length > 0) {
+          allListings = listings;
+          break;
+        }
+      }
+      
+      resultsHeader.textContent = `Showing ${allListings.length} items`;
+    } else {
+      let totalCount = 0;
+      selectedSellers.forEach(seller => {
+        if (sellerToListings[seller]) {
+          totalCount += sellerToListings[seller].length;
+        }
+      });
+      resultsHeader.textContent = `Showing ${totalCount} items (filtered)`;
+    }
+  }
+
+  // Function to re-analyze sellers when new content is loaded
+  function reanalyzeAndUpdateFilter() {
+    console.log('🔄 Re-analyzing sellers due to new content...');
+    
+    // Get current listing count for comparison
+    const currentListings = document.querySelectorAll('.feed-item, .shortcut_navigable, .marketplace_listing, .listing, .item');
+    console.log(`📊 Current listings found: ${currentListings.length}`);
+    
+    if (currentListings.length === 0) {
+      console.log('⚠️ No listings found, skipping reanalysis');
+      return;
+    }
+    
+    // Store previous filter state
+    const previousSelectedSellers = new Set(currentSelectedSellers);
+    const wasFilterActive = isFilterActive;
+    
+    // Re-run the analysis
+    analyzeSellersAndCreateFilter();
+    
+    // If we had active filters, reapply them
+    if (wasFilterActive && previousSelectedSellers.size > 0 && currentSellerData) {
+      console.log(`🔍 Re-applying filters for ${previousSelectedSellers.size} sellers...`);
+      
+      // Update the current selected sellers
+      currentSelectedSellers = previousSelectedSellers;
+      isFilterActive = true;
+      
+      // Reapply the filters
+      filterListings(currentSelectedSellers, currentSellerData.sellerToListings);
+      
+      // Update checkboxes to match the filter state
+      setTimeout(() => {
+        updateCheckboxesFromFilterState();
+      }, 500);
+    } else {
+      console.log('ℹ️ No active filters to reapply');
+    }
+  }
+  
+  // Function to update checkboxes based on current filter state
+  function updateCheckboxesFromFilterState() {
+    const filterContainer = document.getElementById('seller-filter-container');
+    if (!filterContainer) return;
+    
+    // Update "Show All" checkbox
+    const showAllCheckbox = filterContainer.querySelector('.show-all-btn input');
+    if (showAllCheckbox) {
+      showAllCheckbox.checked = !isFilterActive;
+    }
+    
+    // Update individual seller checkboxes
+    currentSelectedSellers.forEach(seller => {
+      const checkbox = filterContainer.querySelector(`#seller-${seller.replace(/\s+/g, '-')}`);
+      if (checkbox) {
+        checkbox.checked = true;
+      }
+    });
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // Global variables to track current state
+  let currentSellerData = null;
+  let currentSelectedSellers = new Set();
+  let isFilterActive = false;
+
+  // Enhanced mutation observer to handle dynamic content loading
+  let lastUrl = location.href;
+  let lastListingCount = 0;
+  let reanalysisTimeout = null;
+  
+  // Function to check for new listings and trigger reanalysis
+  function checkForNewListings() {
+    const currentListings = document.querySelectorAll('.feed-item, .shortcut_navigable, .marketplace_listing, .listing, .item');
+    
+    if (currentListings.length > lastListingCount) {
+      console.log(`🔄 New listings detected: ${currentListings.length} (was ${lastListingCount})`);
+      lastListingCount = currentListings.length;
+      
+      // Clear any existing timeout
+      if (reanalysisTimeout) {
+        clearTimeout(reanalysisTimeout);
+      }
+      
+      // Re-analyze sellers and update filter with a small delay
+      reanalysisTimeout = setTimeout(() => {
+        reanalyzeAndUpdateFilter();
+      }, 1000);
+    }
+  }
+  
+  const mutationObserver = new MutationObserver((mutations) => {
+    const url = location.href;
+    if (url !== lastUrl) {
+      lastUrl = url;
+      init();
+      return;
+    }
+    
+    // Check for new listings
+    checkForNewListings();
+  });
+  
+  mutationObserver.observe(document, { 
+    subtree: true, 
+    childList: true,
+    attributes: true,
+    characterData: true
+  });
+  
+  // Also check periodically in case mutation observer misses something
+  setInterval(checkForNewListings, 2000);
+  
+  // Listen for common events that might trigger content loading
+  document.addEventListener('click', (event) => {
+    // Check if clicked element might be a "load more" button
+    const target = event.target;
+    if (target && (
+      target.textContent.toLowerCase().includes('load') ||
+      target.textContent.toLowerCase().includes('more') ||
+      target.textContent.toLowerCase().includes('show') ||
+      target.classList.contains('load-more') ||
+      target.classList.contains('show-more') ||
+      target.classList.contains('pagination')
+    )) {
+      console.log('🖱️ Potential load more button clicked, checking for new content...');
+      setTimeout(checkForNewListings, 1500);
+    }
+  });
+  
+  // Listen for scroll events (in case of infinite scroll)
+  let scrollTimeout = null;
+  window.addEventListener('scroll', () => {
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+    }
+    scrollTimeout = setTimeout(checkForNewListings, 1000);
+  });
+
+})();

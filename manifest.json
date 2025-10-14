@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Discogs Seller Filter",
+  "version": "1.0",
+  "description": "Filter your Discogs wantlist by sellers who have the most items",
+  "permissions": [],
+  "content_scripts": [
+    {
+      "matches": ["https://www.discogs.com/shop/mywants*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

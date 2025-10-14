@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Extension with Example HTML</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .sidebar {
+            width: 300px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .main-content {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #0074e0;
+            padding-bottom: 10px;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Extension with Example HTML</h1>
+    
+    <div class="instructions">
+        <strong>Test Instructions:</strong> This page loads the example HTML file in an iframe. 
+        The extension should detect the sellers and create a filter. 
+        If you see the "Filter by Seller" section, the extension is working!
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <h3>Extension Test Area</h3>
+            <p>This is where the seller filter should appear...</p>
+            <div id="test-results"></div>
+        </div>
+        
+        <div class="main-content">
+            <h2>Example Discogs Page (in iframe)</h2>
+            <iframe src="example-wantlist-marketplace-page.html" title="Example Discogs Page"></iframe>
+        </div>
+    </div>
+
+    <script>
+        // Simulate the extension running on the iframe content
+        function testExtension() {
+            const iframe = document.querySelector('iframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            if (iframeDoc) {
+                console.log('Testing extension on iframe content...');
+                
+                // Test listing detection
+                const feedItems = iframeDoc.querySelectorAll('.feed-item');
+                console.log(`Found ${feedItems.length} feed items`);
+                
+                // Test seller detection
+                const sellerSpans = iframeDoc.querySelectorAll('span');
+                const sellers = [];
+                sellerSpans.forEach(span => {
+                    const text = span.textContent.trim();
+                    if (text.startsWith('Seller: ')) {
+                        const sellerName = text.replace('Seller: ', '').trim();
+                        sellers.push(sellerName);
+                    }
+                });
+                
+                console.log('Found sellers:', sellers);
+                
+                // Update test results
+                const resultsDiv = document.getElementById('test-results');
+                resultsDiv.innerHTML = `
+                    <h4>Test Results:</h4>
+                    <p><strong>Feed Items Found:</strong> ${feedItems.length}</p>
+                    <p><strong>Sellers Found:</strong> ${sellers.length}</p>
+                    <ul>
+                        ${sellers.map(seller => `<li>${seller}</li>`).join('')}
+                    </ul>
+                `;
+            }
+        }
+        
+        // Wait for iframe to load
+        document.querySelector('iframe').onload = () => {
+            setTimeout(testExtension, 1000);
+        };
+    </script>
+</body>
+</html>

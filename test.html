@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discogs Seller Filter - Test Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .sidebar {
+            width: 300px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .main-content {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .shortcut_navigable {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        .seller_info {
+            font-weight: bold;
+            color: #0074e0;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #0074e0;
+            padding-bottom: 10px;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Discogs Seller Filter - Test Page</h1>
+    
+    <div class="instructions">
+        <strong>Test Instructions:</strong> This page simulates the Discogs mywants page structure. 
+        The extension should detect the sellers and create a filter in the sidebar. 
+        If you see the "Filter by Seller" section, the extension is working!
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <h3>Marketplace Filters</h3>
+            <p>This is where the seller filter should appear...</p>
+        </div>
+        
+        <div class="main-content">
+            <h2>Marketplace Listings (Test Data)</h2>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 1</h3>
+                <p>Price: $15.99</p>
+                <p>Seller: <a href="/seller/testuser1" class="seller_info"><strong>testuser1</strong></a></p>
+                <p>Condition: Near Mint</p>
+            </div>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 2</h3>
+                <p>Price: $22.50</p>
+                <p>Seller: <a href="/seller/testuser1" class="seller_info"><strong>testuser1</strong></a></p>
+                <p>Condition: Very Good</p>
+            </div>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 3</h3>
+                <p>Price: $8.99</p>
+                <p>Seller: <a href="/seller/vinylcollector" class="seller_info"><strong>vinylcollector</strong></a></p>
+                <p>Condition: Excellent</p>
+            </div>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 4</h3>
+                <p>Price: $35.00</p>
+                <p>Seller: <a href="/seller/vinylcollector" class="seller_info"><strong>vinylcollector</strong></a></p>
+                <p>Condition: Near Mint</p>
+            </div>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 5</h3>
+                <p>Price: $12.75</p>
+                <p>Seller: <a href="/seller/vinylcollector" class="seller_info"><strong>vinylcollector</strong></a></p>
+                <p>Condition: Good</p>
+            </div>
+            
+            <div class="shortcut_navigable">
+                <h3>Test Item 6</h3>
+                <p>Price: $19.99</p>
+                <p>Seller: <a href="/seller/musicdealer" class="seller_info"><strong>musicdealer</strong></a></p>
+                <p>Condition: Very Good</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simulate the extension running
+        console.log('Test page loaded. Extension should detect:');
+        console.log('- testuser1: 2 items');
+        console.log('- vinylcollector: 3 items'); 
+        console.log('- musicdealer: 1 item');
+    </script>
+</body>
+</html>
