@@ -68,6 +68,199 @@
     }
   }
 
+  // Helpers to expand/scroll and load as many listings as possible
+  function getConfiguredServerUrl() {
+    return (
+      localStorage.getItem('discogs-analysis-server-url') ||
+      'https://35559c0548fd.ngrok.app'
+    );
+  }
+
+  function getConfiguredApiToken() {
+    return localStorage.getItem('discogs-api-token') || '';
+  }
+
+  function setConfiguredServerUrl(url) {
+    localStorage.setItem('discogs-analysis-server-url', url);
+  }
+
+  function setConfiguredApiToken(token) {
+    localStorage.setItem('discogs-api-token', token);
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function getListingCount() {
+    const selectors = ['.feed-item', '.shortcut_navigable', '.marketplace_listing', '.listing', '.item'];
+    for (const sel of selectors) {
+      const els = document.querySelectorAll(sel);
+      if (els.length > 0) return els.length;
+    }
+    return 0;
+  }
+
+  async function expandAllListingsIfPossible(maxIterations = 30) {
+    let lastCount = getListingCount();
+    let stagnantTries = 0;
+    for (let i = 0; i < maxIterations; i++) {
+      // Scroll to bottom to trigger lazy/infinite load
+      window.scrollTo(0, document.body.scrollHeight);
+
+      // Click common load more controls if present
+      const loadButtons = Array.from(document.querySelectorAll('button, a')).filter(el => {
+        const txt = (el.textContent || '').toLowerCase().trim();
+        return txt && (
+          txt.includes('load more') ||
+          txt.includes('show more') ||
+          txt === 'more' ||
+          (txt.includes('load') && txt.includes('more'))
+        );
+      });
+      if (loadButtons.length > 0) {
+        try { loadButtons[0].click(); } catch (_) {}
+      }
+
+      await sleep(1200);
+
+      const current = getListingCount();
+      if (current > lastCount) {
+        console.log(`Expanded listings: ${current} (was ${lastCount})`);
+        lastCount = current;
+        stagnantTries = 0;
+      } else {
+        stagnantTries++;
+        if (stagnantTries >= 3) {
+          console.log('No additional listings after multiple attempts.');
+          break;
+        }
+      }
+    }
+  }
+
+  // Pagination helpers for the new UI
+  async function selectShowItems250(timeoutMs = 4000) {
+    try {
+      const select = document.querySelector('select.brand-select[aria-labelledby="set-show-items"]');
+      if (!select) return false;
+      const previousCount = getListingCount();
+      select.value = '250';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      // wait for list to refresh
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        await sleep(200);
+        const current = getListingCount();
+        if (current && current !== previousCount) return true;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function findNextButton() {
+    // Prefer explicit next button
+    let btn = document.querySelector('button[aria-label*="Next" i]');
+    if (!btn) {
+      // Fallbacks: some UIs use arrow or "Skip to End" buttons - pick the right-most pagination-like button that isn't disabled
+      const candidates = Array.from(document.querySelectorAll('button'))
+        .filter(b => b && b.offsetParent !== null);
+      // choose last clickable without cursor-not-allowed
+      btn = candidates.reverse().find(b => !b.classList.contains('cursor-not-allowed')) || null;
+    }
+    return btn;
+  }
+
+  async function goToNextPageAndWait(timeoutMs = 6000) {
+    const btn = findNextButton();
+    if (!btn) return { moved: false };
+    if (btn.classList.contains('cursor-not-allowed') || btn.disabled) return { moved: false };
+
+    const beforeIds = new Set(Array.from(document.querySelectorAll('[data-itemid]')).map(d => d.getAttribute('data-itemid')));
+    try { btn.click(); } catch (_) {}
+
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await sleep(250);
+      const afterIds = Array.from(document.querySelectorAll('[data-itemid]')).map(d => d.getAttribute('data-itemid'));
+      if (afterIds.length && !afterIds.every(id => beforeIds.has(id))) {
+        return { moved: true };
+      }
+      // if button becomes disabled, we likely reached the end
+      if (btn.classList.contains('cursor-not-allowed') || btn.disabled) return { moved: false };
+    }
+    return { moved: true };
+  }
+
+  function scrapeListingsOnPage() {
+    const results = [];
+    const containers = document.querySelectorAll('[data-itemid]');
+    containers.forEach(container => {
+      try {
+        const listingId = container.getAttribute('data-itemid');
+        // release/title
+        const titleLink = container.querySelector('a[href*="/sell/item/"]');
+        const release = titleLink ? titleLink.textContent.trim() : '';
+        // seller block per provided structure
+        let seller = '';
+        let sellerRatings = '';
+        const sellerBlock = container.querySelector('p.text-brand-textSecondary.brand-item-copy.flex.items-center');
+        if (sellerBlock) {
+          const sellerLink = sellerBlock.querySelector('a[href*="/seller/"]');
+          if (sellerLink) seller = sellerLink.textContent.trim();
+          const ratingSpan = sellerBlock.querySelector('span');
+          if (ratingSpan) sellerRatings = ratingSpan.textContent.trim();
+        } else {
+          const fallbackSellerLink = container.querySelector('a[href*="/seller/"]');
+          if (fallbackSellerLink) seller = fallbackSellerLink.textContent.trim();
+        }
+        // price (bold, large)
+        const priceEl = container.querySelector('p.font-bold, p[class*="text-2xl"]');
+        const priceText = priceEl ? priceEl.textContent.trim() : '';
+        // shipping (text after '+')
+        const shipLine = Array.from(container.querySelectorAll('p'))
+          .map(p => p.textContent.trim())
+          .find(t => /^\+\s*[^\s]+/i.test(t));
+        let shippingText = '';
+        if (shipLine) {
+          const m = shipLine.match(/\+\s*([^\s]+\s*\d+[\.,]?\d*)/);
+          if (m) shippingText = m[1].trim();
+        }
+        results.push({ listingId, release, seller, sellerRatings, price: priceText, shipping: shippingText });
+      } catch (_) {}
+    });
+    return results;
+  }
+
+  async function scrapeAllPages() {
+    await selectShowItems250();
+    const all = [];
+    const seen = new Set();
+    let page = 1;
+    while (true) {
+      const pageData = scrapeListingsOnPage();
+      pageData.forEach(it => {
+        const key = it.listingId || `${it.seller}|${it.release}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          all.push(it);
+        }
+      });
+      const btn = findNextButton();
+      if (!btn || btn.classList.contains('cursor-not-allowed') || btn.disabled) break;
+      const { moved } = await goToNextPageAndWait();
+      if (!moved) break;
+      page++;
+      // small pause between pages
+      await sleep(500);
+    }
+    window.__discogsSellerFilterAllListings = all;
+    console.log(`Scraped ${all.length} listings across pages`, all);
+    return all;
+  }
+
   // Function to show user messages
   function showUserMessage(message, type = 'info') {
     // Remove any existing messages
@@ -110,13 +303,14 @@
     }
 
     // Try multiple times with increasing delays for dynamic content
-    const tryAnalyze = (attempt = 1, maxAttempts = 5) => {
+    const tryAnalyze = async (attempt = 1, maxAttempts = 5) => {
       console.log(`Attempt ${attempt} to analyze sellers...`);
       
       // Check if we have any content loaded
       const hasContent = document.querySelectorAll('div, section, article').length > 10;
       
       if (hasContent) {
+        // Do not auto-scrape; just render UI. User triggers analysis via button.
         analyzeSellersAndCreateFilter();
       } else if (attempt < maxAttempts) {
         console.log(`Not enough content loaded yet, retrying in ${attempt * 1000}ms...`);
@@ -356,7 +550,7 @@
     header.textContent = 'Filter by Seller';
     header.style.cursor = 'pointer';
     
-    // Add refresh button
+    // Add refresh + analyze + settings buttons
     const refreshBtn = document.createElement('button');
     refreshBtn.textContent = '🔄';
     refreshBtn.title = 'Refresh filter (click if new items were loaded)';
@@ -382,8 +576,79 @@
       // Re-run the entire analysis
       analyzeSellersAndCreateFilter();
     });
-    
+    const analyzeBtn = document.createElement('button');
+    analyzeBtn.textContent = 'Analyze Sellers';
+    analyzeBtn.title = 'Send scraped listings to analysis server';
+    analyzeBtn.style.cssText = `
+      float: right;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 8px;
+    `;
+    analyzeBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        let token = getConfiguredApiToken();
+        if (!token) {
+          token = prompt('Enter your Discogs API token:');
+          if (!token) return;
+          setConfiguredApiToken(token.trim());
+        }
+        // Ensure we have the full scrape first
+        const allListings = await scrapeAllPages();
+        const payload = { token, listings: allListings };
+        const serverUrl = getConfiguredServerUrl();
+        const resp = await fetch(`${serverUrl.replace(/\/$/, '')}/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await resp.json();
+        if (!resp.ok) {
+          alert('Analysis failed: ' + (json.error || resp.status));
+          return;
+        }
+        console.log('Analysis result:', json);
+        alert(`Found ${json.totals.numSellers} sellers across ${json.totals.numListings} listings. Top seller: ${json.sellers?.[0]?.seller || 'n/a'}`);
+      } catch (err) {
+        console.error(err);
+        alert('Analysis request failed');
+      }
+    });
+
+    const settingsBtn = document.createElement('button');
+    settingsBtn.textContent = '⚙️';
+    settingsBtn.title = 'Configure analysis server URL and Discogs API token';
+    settingsBtn.style.cssText = `
+      float: right;
+      background: #6b7280;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 8px;
+    `;
+    settingsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const currentUrl = getConfiguredServerUrl();
+      const newUrl = prompt('Analysis server URL:', currentUrl);
+      if (newUrl && newUrl.trim()) setConfiguredServerUrl(newUrl.trim());
+      const currentToken = getConfiguredApiToken();
+      const newToken = prompt('Discogs API token (will be stored locally):', currentToken);
+      if (newToken !== null) setConfiguredApiToken((newToken || '').trim());
+      alert('Configuration saved.');
+    });
+
     header.appendChild(refreshBtn);
+    header.appendChild(settingsBtn);
+    header.appendChild(analyzeBtn);
     filterContainer.appendChild(header);
 
     // Create sellers list
