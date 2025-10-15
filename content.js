@@ -722,10 +722,53 @@
     });
     configRow.appendChild(urlInput);
     configRow.appendChild(tokenInput);
-    configRow.appendChild(saveBtn);
-    filterContainer.appendChild(configRow);
+      configRow.appendChild(saveBtn);
+      filterContainer.appendChild(configRow);
 
-    // Create sellers list container (empty initially)
+      // Budget optimization row
+      const budgetRow = document.createElement('div');
+      budgetRow.style.cssText = 'margin:8px 0; padding:8px; background:#f8f9fa; border-radius:4px; border:1px solid #e9ecef;';
+      
+      const budgetLabel = document.createElement('div');
+      budgetLabel.textContent = 'Budget Optimization';
+      budgetLabel.style.cssText = 'font-weight:bold; margin-bottom:6px; font-size:12px;';
+      
+      const budgetSliderContainer = document.createElement('div');
+      budgetSliderContainer.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:6px;';
+      
+      const budgetSlider = document.createElement('input');
+      budgetSlider.type = 'range';
+      budgetSlider.min = '10';
+      budgetSlider.max = '1000';
+      budgetSlider.value = '100';
+      budgetSlider.step = '10';
+      budgetSlider.style.cssText = 'flex:1;';
+      
+      const budgetValue = document.createElement('span');
+      budgetValue.textContent = '$100';
+      budgetValue.style.cssText = 'font-weight:bold; min-width:40px; text-align:right;';
+      
+      budgetSlider.addEventListener('input', () => {
+        budgetValue.textContent = '$' + budgetSlider.value;
+      });
+      
+      const optimizeBtn = document.createElement('button');
+      optimizeBtn.textContent = '🎯 Find Best Deals';
+      optimizeBtn.style.cssText = 'background:#dc2626;color:#fff;border:none;border-radius:3px;padding:4px 8px;cursor:pointer;font-size:11px;';
+      optimizeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await runOptimizationFlow(budgetSlider.value);
+      });
+      
+      budgetSliderContainer.appendChild(budgetSlider);
+      budgetSliderContainer.appendChild(budgetValue);
+      budgetSliderContainer.appendChild(optimizeBtn);
+      
+      budgetRow.appendChild(budgetLabel);
+      budgetRow.appendChild(budgetSliderContainer);
+      filterContainer.appendChild(budgetRow);
+
+      // Create sellers list container (empty initially)
     const sellersList = document.createElement('div');
     sellersList.id = 'sellers-list';
     sellersList.className = 'sellers-list';
@@ -967,6 +1010,100 @@
       if (checkbox) {
         checkbox.checked = true;
       }
+    });
+  }
+
+  async function runOptimizationFlow(budget) {
+    showUserMessage(`Starting optimization with budget $${budget}...`, 'info');
+    const apiToken = localStorage.getItem('discogs-api-token');
+    const serverUrl = localStorage.getItem('discogs-analysis-server-url');
+
+    if (!apiToken) {
+      showUserMessage('Discogs API Token is not set. Please enter it in the sidebar settings.', 'error');
+      return;
+    }
+    if (!serverUrl) {
+      showUserMessage('Analysis Server URL is not set. Please enter it in the sidebar settings.', 'error');
+      return;
+    }
+
+    try {
+      await selectShowItems250(); // Ensure 250 items are shown per page
+      const allScrapedListings = await scrapeAllPages(); // Scrape all pages
+
+      if (allScrapedListings.length === 0) {
+        showUserMessage('No listings found after scraping all pages.', 'error');
+        return;
+      }
+
+      showUserMessage(`Scraped ${allScrapedListings.length} listings. Optimizing for budget $${budget}...`, 'info');
+
+      const response = await fetch(`${serverUrl}/optimize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: apiToken, listings: allScrapedListings, budget: parseFloat(budget) }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
+
+      const optimizationResults = await response.json();
+      console.log('🎯 Optimization Results from server:', optimizationResults);
+      displayOptimizationResults(optimizationResults);
+      showUserMessage(`Optimization complete! Found ${optimizationResults.selected.length} items for $${optimizationResults.summary.totalCost}.`, 'success');
+
+    } catch (error) {
+      console.error('Error during optimization flow:', error);
+      showUserMessage(`Optimization failed: ${error.message}`, 'error');
+    }
+  }
+
+  function displayOptimizationResults(results) {
+    const sellersList = document.getElementById('sellers-list');
+    if (!sellersList) return;
+
+    sellersList.innerHTML = '';
+
+    const summaryDiv = document.createElement('div');
+    summaryDiv.style.cssText = 'background:#e8f5e8;border:1px solid #4caf50;border-radius:4px;padding:8px;margin-bottom:8px;';
+    summaryDiv.innerHTML = `
+      <div style="font-weight:bold;color:#2e7d32;margin-bottom:4px;">🎯 Best Deals Found</div>
+      <div style="font-size:12px;">
+        <div>Items: ${results.summary.totalItems}</div>
+        <div>Items Cost: $${results.summary.itemCost.toFixed(2)}</div>
+        <div>Shipping: $${results.summary.shippingCost.toFixed(2)}</div>
+        <div style="font-weight:bold;color:#d32f2f;">Total: $${results.summary.totalCost.toFixed(2)}</div>
+        <div>Efficiency: ${(results.summary.efficiency || 0).toFixed(2)} items per $</div>
+        <div>Remaining Budget: $${(results.summary.remainingBudget || 0).toFixed(2)}</div>
+      </div>
+    `;
+    sellersList.appendChild(summaryDiv);
+
+    // Group by seller
+    Object.entries(results.bySeller).forEach(([seller, data]) => {
+      const sellerDiv = document.createElement('div');
+      sellerDiv.style.cssText = 'border:1px solid #ddd;border-radius:4px;margin:4px 0;padding:6px;background:#fff;';
+      
+      sellerDiv.innerHTML = `
+        <div style="font-weight:bold;color:#1976d2;margin-bottom:4px;">
+          ${seller} (${data.itemCount} items, $${data.totalCost.toFixed(2)})
+        </div>
+        <div style="font-size:11px;color:#666;">
+          Items: $${data.itemCost.toFixed(2)} + Shipping: $${data.shippingCost.toFixed(2)}
+        </div>
+        <div style="margin-top:4px;">
+          ${data.items.map(item => `
+            <div style="font-size:11px;padding:2px 0;border-bottom:1px solid #f0f0f0;">
+              ${item.release} - $${(item.priceParsed?.amount || 0).toFixed(2)}
+            </div>
+          `).join('')}
+        </div>
+      `;
+      sellersList.appendChild(sellerDiv);
     });
   }
 
