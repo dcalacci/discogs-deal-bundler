@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import axios from 'axios'
 import fs from 'fs'
 import path from 'path'
+import fetch from 'node-fetch'
 
 dotenv.config()
 
@@ -62,17 +63,83 @@ function saveCache() {
 // Load cache on startup
 loadCache()
 
-function parseCurrencyToUSD(value) {
-  if (!value) return { amount: 0, currency: 'USD' }
+// Currency conversion cache
+let currencyRates = {
+  'USD': 1.0,
+  'EUR': 1.08,  // Fallback rates
+  'GBP': 1.27,
+  'CAD': 0.74,
+  'AUD': 0.66,
+  'JPY': 0.0067,
+  'CHF': 1.12,
+  'SEK': 0.095,
+  'NOK': 0.093,
+  'DKK': 0.145,
+}
+let lastCurrencyUpdate = 0
+const CURRENCY_CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours
+
+// Fetch real-time exchange rates
+async function fetchExchangeRates() {
+  try {
+    const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD')
+    const data = await response.json()
+    
+    if (data.rates) {
+      currencyRates = { 'USD': 1.0, ...data.rates }
+      lastCurrencyUpdate = Date.now()
+      console.log('Updated currency rates from API')
+      return true
+    }
+  } catch (error) {
+    console.warn('Failed to fetch exchange rates, using cached rates:', error.message)
+  }
+  return false
+}
+
+// Get exchange rate with caching
+async function getExchangeRate(currency) {
+  // Check if we need to update rates
+  if (Date.now() - lastCurrencyUpdate > CURRENCY_CACHE_DURATION) {
+    await fetchExchangeRates()
+  }
+  
+  return currencyRates[currency] || 1.0
+}
+
+async function parseCurrencyToUSD(value) {
+  if (!value) return { amount: 0, currency: 'USD', amountUSD: 0 }
   const trimmed = String(value).trim()
   
-  // Extract currency symbol (€, $, £, etc.)
+  // Extract currency symbol and map to currency codes
   const currencyMatch = trimmed.match(/^[€$£¥₹₽₩₪₫₨₦₡₱₴₸₼₾₿]/)
   const symbol = currencyMatch ? currencyMatch[0] : ''
   
+  // Map currency symbols to ISO codes
+  const symbolToCurrency = {
+    '€': 'EUR',
+    '$': 'USD', 
+    '£': 'GBP',
+    '¥': 'JPY',
+    '₹': 'INR',
+    '₽': 'RUB',
+    '₩': 'KRW',
+    '₪': 'ILS',
+    '₫': 'VND',
+    '₨': 'PKR',
+    '₦': 'NGN',
+    '₡': 'CRC',
+    '₱': 'PHP',
+    '₴': 'UAH',
+    '₸': 'KZT',
+    '₼': 'AZN',
+    '₾': 'GEL',
+    '₿': 'BTC'
+  }
+  
   // Extract numeric value, handling both comma and dot as decimal separators
   const numericMatch = trimmed.match(/[\d,.-]+/)
-  if (!numericMatch) return { amount: 0, currency: symbol || 'USD' }
+  if (!numericMatch) return { amount: 0, currency: symbol || 'USD', amountUSD: 0 }
   
   let numStr = numericMatch[0]
   // Handle European format (comma as decimal separator)
@@ -85,15 +152,28 @@ function parseCurrencyToUSD(value) {
   }
   
   const num = parseFloat(numStr)
-  return { amount: isNaN(num) ? 0 : num, currency: symbol || 'USD' }
+  if (isNaN(num)) return { amount: 0, currency: symbol || 'USD', amountUSD: 0 }
+  
+  // Convert to USD using real-time rates
+  const currency = symbolToCurrency[symbol] || 'USD'
+  const rate = await getExchangeRate(currency)
+  const amountUSD = num * rate
+  
+  return { 
+    amount: num, 
+    currency: currency, 
+    amountUSD: parseFloat(amountUSD.toFixed(2))
+  }
 }
 
-function normalizePrices(items) {
-  return items.map(it => {
-    const price = parseCurrencyToUSD(it.price)
-    const shipping = parseCurrencyToUSD(it.shipping)
-    return { ...it, priceParsed: price, shippingParsed: shipping }
-  })
+async function normalizePrices(items) {
+  const results = []
+  for (const it of items) {
+    const price = await parseCurrencyToUSD(it.price)
+    const shipping = await parseCurrencyToUSD(it.shipping)
+    results.push({ ...it, priceParsed: price, shippingParsed: shipping })
+  }
+  return results
 }
 
 async function fetchListingsFromAPI(listings, token) {
@@ -215,19 +295,19 @@ function optimizeBudget(items, budget) {
   // Create seller combinations with proper shipping calculation
   const sellerCombinations = []
   bySeller.forEach((sellerItems, seller) => {
-    // Sort items by total cost (price + shipping) ascending
+    // Sort items by total cost (price + shipping) ascending using USD amounts
     const sortedItems = sellerItems
       .map(item => ({
         ...item,
-        totalCost: (item.priceParsed?.amount || 0) + (item.shippingParsed?.amount || 0)
+        totalCost: (item.priceParsed?.amountUSD || 0) + (item.shippingParsed?.amountUSD || 0)
       }))
       .sort((a, b) => a.totalCost - b.totalCost)
 
     // Generate all possible combinations for this seller
     for (let count = 1; count <= sortedItems.length; count++) {
       const selected = sortedItems.slice(0, count)
-      const itemCost = selected.reduce((sum, item) => sum + (item.priceParsed?.amount || 0), 0)
-      const shippingCost = selected[0]?.shippingParsed?.amount || 0 // Only pay shipping once per seller
+      const itemCost = selected.reduce((sum, item) => sum + (item.priceParsed?.amountUSD || 0), 0)
+      const shippingCost = selected[0]?.shippingParsed?.amountUSD || 0 // Only pay shipping once per seller
       const totalCost = itemCost + shippingCost
       
       if (totalCost <= budget) {
@@ -310,7 +390,7 @@ app.post('/analyze', async (req, res) => {
     }
     // Optional token for future enrichment
     const effectiveToken = token.trim()
-    const items = normalizePrices(listings)
+    const items = await normalizePrices(listings)
 
     const sellerMap = new Map()
     for (const it of items) {
@@ -327,13 +407,15 @@ app.post('/analyze', async (req, res) => {
         })
       }
       const entry = sellerMap.get(sellerKey)
-      const totalThis = (it.priceParsed?.amount || 0) + (it.shippingParsed?.amount || 0)
+      const totalThis = (it.priceParsed?.amountUSD || 0) + (it.shippingParsed?.amountUSD || 0)
       entry.items.push({
         listingId: it.listingId,
         release: it.release || '',
         price: it.price,
         shipping: it.shipping,
         total: totalThis,
+        priceParsed: it.priceParsed.amountUSD,
+        shippingParsed: it.shippingParsed.amountUSD
       })
       entry.count += 1
       entry.totalPrice += totalThis
@@ -387,12 +469,12 @@ app.post('/optimize', async (req, res) => {
     const enrichedListings = await fetchListingsFromAPI(listings, token)
     console.log('Sample enriched listings:', enrichedListings.slice(0, 3))
     
-    const items = normalizePrices(enrichedListings)
+    const items = await normalizePrices(enrichedListings)
     console.log('Sample normalized items:', items.slice(0, 3))
     console.log('Budget:', budget)
     
     // Filter out items with price 0
-    const validItems = items.filter(item => (item.priceParsed?.amount || 0) > 0)
+    const validItems = items.filter(item => (item.priceParsed?.amountUSD || 0) > 0)
     console.log(`Filtered ${items.length - validItems.length} items with price 0, ${validItems.length} valid items remaining`)
     
     const optimizationResult = optimizeBudget(validItems, budget)
@@ -430,12 +512,12 @@ app.post('/optimize-fast', async (req, res) => {
     console.log(`Using scraped data for ${listings.length} listings (no API calls needed)`)
     console.log('Sample scraped listings:', listings.slice(0, 3))
     
-    const items = normalizePrices(listings)
+    const items = await normalizePrices(listings)
     console.log('Sample normalized items:', items.slice(0, 3))
     console.log('Budget:', budget)
     
     // Filter out items with price 0
-    const validItems = items.filter(item => (item.priceParsed?.amount || 0) > 0)
+    const validItems = items.filter(item => (item.priceParsed?.amountUSD || 0) > 0)
     console.log(`Filtered ${items.length - validItems.length} items with price 0, ${validItems.length} valid items remaining`)
     
     const optimizationResult = optimizeBudget(validItems, budget)

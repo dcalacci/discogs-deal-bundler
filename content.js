@@ -1114,8 +1114,26 @@
         </div>
         <div style="margin-top:4px;">
           ${data.items.map(item => `
-            <div style="font-size:11px;padding:2px 0;border-bottom:1px solid #f0f0f0;">
-              ${item.release} - $${(item.priceParsed?.amount || 0).toFixed(2)}
+            <div style="font-size:11px;padding:4px 0;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;">
+              <div style="flex:1;">
+                <div style="font-weight:bold;margin-bottom:2px;">${item.release}</div>
+                <div style="color:#666;">
+                  $${(item.priceParsed?.amountUSD || 0).toFixed(2)} (${item.priceParsed?.currency || 'USD'}${item.priceParsed?.amount || 0})
+                  ${item.shippingParsed?.amountUSD > 0 ? `+ $${(item.shippingParsed?.amountUSD || 0).toFixed(2)} shipping` : ''}
+                </div>
+              </div>
+              <div style="display:flex;gap:4px;margin-left:8px;">
+                <a href="https://www.discogs.com/sell/cart/?add=${item.listingId}" 
+                   target="_blank" 
+                   style="background:#4caf50;color:white;padding:2px 6px;border-radius:3px;text-decoration:none;font-size:10px;font-weight:bold;">
+                  Add to Cart
+                </a>
+                <a href="https://www.discogs.com/sell/item/${item.listingId}" 
+                   target="_blank" 
+                   style="background:#2196f3;color:white;padding:2px 6px;border-radius:3px;text-decoration:none;font-size:10px;font-weight:bold;">
+                  View
+                </a>
+              </div>
             </div>
           `).join('')}
         </div>
