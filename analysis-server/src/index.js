@@ -330,6 +330,7 @@ function optimizeBudget(items, budget) {
 
   const selected = []
   const usedSellers = new Set()
+  const usedReleases = new Set() // Track releases to avoid duplicates
   let remainingBudget = budget
   let totalCost = 0
   let totalItems = 0
@@ -338,8 +339,14 @@ function optimizeBudget(items, budget) {
     if (usedSellers.has(combination.seller)) continue
     if (combination.totalCost > remainingBudget) continue
 
+    // Check if any releases in this combination are already used
+    const hasDuplicateRelease = combination.items.some(item => usedReleases.has(item.release))
+    if (hasDuplicateRelease) continue
+
     selected.push(combination)
     usedSellers.add(combination.seller)
+    // Mark all releases in this combination as used
+    combination.items.forEach(item => usedReleases.add(item.release))
     remainingBudget -= combination.totalCost
     totalCost += combination.totalCost
     totalItems += combination.itemCount
