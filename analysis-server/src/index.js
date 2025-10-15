@@ -405,6 +405,49 @@ app.post('/optimize', async (req, res) => {
   }
 })
 
+// Fast optimization endpoint using scraped data (no API calls)
+app.post('/optimize-fast', async (req, res) => {
+  try {
+    // Add CORS headers explicitly for this endpoint
+    res.header('Access-Control-Allow-Origin', 'https://www.discogs.com')
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    
+    console.log('Received optimize-fast request from origin:', req.headers.origin)
+    const { token, listings, budget } = req.body || {}
+    
+    if (!token || typeof token !== 'string' || token.trim().length === 0) {
+      return res.status(400).json({ error: 'token required' })
+    }
+    if (!Array.isArray(listings) || listings.length === 0) {
+      return res.status(400).json({ error: 'listings required' })
+    }
+    if (!budget || typeof budget !== 'number' || budget <= 0) {
+      return res.status(400).json({ error: 'budget must be a positive number' })
+    }
+
+    // Use scraped data directly (faster than API calls)
+    console.log(`Using scraped data for ${listings.length} listings (no API calls needed)`)
+    console.log('Sample scraped listings:', listings.slice(0, 3))
+    
+    const items = normalizePrices(listings)
+    console.log('Sample normalized items:', items.slice(0, 3))
+    console.log('Budget:', budget)
+    
+    // Filter out items with price 0
+    const validItems = items.filter(item => (item.priceParsed?.amount || 0) > 0)
+    console.log(`Filtered ${items.length - validItems.length} items with price 0, ${validItems.length} valid items remaining`)
+    
+    const optimizationResult = optimizeBudget(validItems, budget)
+    console.log('Optimization result summary:', optimizationResult.summary)
+    
+    return res.json(optimizationResult)
+  } catch (e) {
+    console.error('Fast optimization error:', e)
+    res.status(500).json({ error: 'optimization_failed' })
+  }
+})
+
 // optional: enrich endpoint to fetch inventory by seller and cross-match releases (future work)
 app.get('/health', (req, res) => res.json({ status: 'ok' }))
 

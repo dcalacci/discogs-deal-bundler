@@ -246,17 +246,34 @@
           const fallbackSellerLink = container.querySelector('a[href*="/seller/"]');
           if (fallbackSellerLink) seller = fallbackSellerLink.textContent.trim();
         }
-        // price (bold, large)
-        const priceEl = container.querySelector('p.font-bold, p[class*="text-2xl"]');
-        const priceText = priceEl ? priceEl.textContent.trim() : '';
-        // shipping (text after '+')
-        const shipLine = Array.from(container.querySelectorAll('p'))
-          .map(p => p.textContent.trim())
-          .find(t => /^\+\s*[^\s]+/i.test(t));
+        // price - look for the price in the right column with specific structure
+        let priceText = '';
+        const priceContainer = container.querySelector('.border-brand-border01.w-\\[163px\\].shrink-0.border-l.ps-3, .border-brand-border01[class*="w-["][class*="shrink-0"][class*="border-l"]');
+        if (priceContainer) {
+          const priceEl = priceContainer.querySelector('span.text-2xl.leading-\\[1\\.25\\].font-bold, span[class*="text-2xl"][class*="font-bold"]');
+          if (priceEl) {
+            priceText = priceEl.textContent.trim();
+          }
+        }
+        
+        // Fallback: look for any span with price-like text
+        if (!priceText) {
+          const priceEl = container.querySelector('span[class*="text-2xl"][class*="font-bold"]');
+          if (priceEl) {
+            priceText = priceEl.textContent.trim();
+          }
+        }
+
+        // shipping - look for the shipping text in the price container
         let shippingText = '';
-        if (shipLine) {
-          const m = shipLine.match(/\+\s*([^\s]+\s*\d+[\.,]?\d*)/);
-          if (m) shippingText = m[1].trim();
+        if (priceContainer) {
+          const shippingEl = priceContainer.querySelector('span.text-brand-primary.text-sm.leading-\\[1\\.25\\], span[class*="text-brand-primary"][class*="text-sm"]');
+          if (shippingEl && shippingEl.textContent.includes('+')) {
+            const match = shippingEl.textContent.match(/\+\s*([^<]+)/);
+            if (match) {
+              shippingText = match[1].trim();
+            }
+          }
         }
         results.push({ listingId, release, seller, sellerRatings, price: priceText, shipping: shippingText });
       } catch (_) {}
@@ -1038,7 +1055,7 @@
 
       showUserMessage(`Scraped ${allScrapedListings.length} listings. Optimizing for budget $${budget}...`, 'info');
 
-      const response = await fetch(`${serverUrl}/optimize`, {
+      const response = await fetch(`${serverUrl}/optimize-fast`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
