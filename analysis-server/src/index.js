@@ -6,7 +6,23 @@ import axios from 'axios'
 dotenv.config()
 
 const app = express()
-app.use(cors())
+
+// More explicit CORS configuration
+app.use(cors({
+  origin: ['https://www.discogs.com', 'https://discogs.com'],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}))
+
+// Add explicit OPTIONS handler for preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', 'https://www.discogs.com')
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.sendStatus(200)
+})
+
 app.use(express.json({ limit: '2mb' }))
 
 const PORT = process.env.PORT || 4002
@@ -41,6 +57,12 @@ function scoreSeller(agg) {
 
 app.post('/analyze', async (req, res) => {
   try {
+    // Add CORS headers explicitly for this endpoint
+    res.header('Access-Control-Allow-Origin', 'https://www.discogs.com')
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    
+    console.log('Received analyze request from origin:', req.headers.origin)
     const { token, listings } = req.body || {}
     if (!token || typeof token !== 'string' || token.trim().length === 0) {
       return res.status(400).json({ error: 'token required' })

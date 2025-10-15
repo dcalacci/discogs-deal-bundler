@@ -194,6 +194,30 @@
     return { moved: true };
   }
 
+  function ensureCombinedContainer() {
+    let wrap = document.getElementById('discogs-combined-listings');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'discogs-combined-listings';
+      wrap.style.cssText = 'border:1px solid #ddd;border-radius:6px;padding:8px;margin:12px 0;background:#fafafa;';
+      const title = document.createElement('div');
+      title.textContent = 'All pages (combined)';
+      title.style.cssText = 'font-weight:bold;margin-bottom:6px;';
+      wrap.appendChild(title);
+      // Insert above the first listing if possible, else at top of body
+      const firstListing = document.querySelector('[data-itemid]');
+      if (firstListing && firstListing.parentElement) {
+        firstListing.parentElement.insertBefore(wrap, firstListing.parentElement.firstChild);
+      } else {
+        document.body.insertBefore(wrap, document.body.firstChild);
+      }
+    } else {
+      // clear previous clones (keep title)
+      Array.from(wrap.children).forEach((child, idx) => { if (idx > 0) child.remove(); });
+    }
+    return wrap;
+  }
+
   function scrapeListingsOnPage() {
     const results = [];
     const containers = document.querySelectorAll('[data-itemid]');
@@ -243,15 +267,29 @@
   async function scrapeAllPages() {
     await selectShowItems250();
     const all = [];
+    const combined = ensureCombinedContainer();
     const seen = new Set();
     let page = 1;
     while (true) {
+      // collect data
       const pageData = scrapeListingsOnPage();
       pageData.forEach(it => {
         const key = it.listingId || `${it.seller}|${it.release}`;
         if (!seen.has(key)) {
           seen.add(key);
           all.push(it);
+        }
+      });
+      // clone and append visible nodes for this page into combined container
+      const pageNodes = document.querySelectorAll('[data-itemid]');
+      pageNodes.forEach(node => {
+        const id = node.getAttribute('data-itemid');
+        if (!id) return;
+        if (!combined.querySelector(`[data-itemid="${id}"]`)) {
+          const clone = node.cloneNode(true);
+          clone.setAttribute('data-combined', '1');
+          clone.style.margin = '8px 0';
+          combined.appendChild(clone);
         }
       });
       const btn = findNextButton();
@@ -264,6 +302,11 @@
     }
     window.__discogsSellerFilterAllListings = all;
     console.log(`Scraped ${all.length} listings across pages`, all);
+    window.__discogsCombinedActive = true;
+    // Hide original page listings; show combined only by default
+    const originals = document.querySelectorAll('[data-itemid]:not([data-combined])');
+    originals.forEach(n => { n.style.display = 'none'; });
+    ensureCombinedContainer().style.display = '';
     return all;
   }
 
