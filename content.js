@@ -752,6 +752,38 @@
     updateResultsCount(null, null);
   }
 
+  // Filter DOM by a specific set of listingIds (data-itemid)
+  function showListingsByIds(listingIdsSet) {
+    const all = document.querySelectorAll('[data-itemid]');
+    all.forEach(node => {
+      const id = node.getAttribute('data-itemid');
+      node.style.display = listingIdsSet.has(id) ? '' : 'none';
+    });
+  }
+
+  function applySellerFilterFromSelection() {
+    const result = window.__discogsAnalysisResult;
+    if (!result || !Array.isArray(result.sellers)) {
+      showAllListings();
+      return;
+    }
+    if (!currentSelectedSellers || currentSelectedSellers.size === 0) {
+      showAllListings();
+      return;
+    }
+    const ids = new Set();
+    result.sellers.forEach(s => {
+      if (currentSelectedSellers.has(s.seller)) {
+        (s.items || []).forEach(it => ids.add(String(it.listingId)));
+      }
+    });
+    if (ids.size === 0) {
+      showAllListings();
+    } else {
+      showListingsByIds(ids);
+    }
+  }
+
   function updateResultsCount(selectedSellers, sellerToListings) {
     const resultsHeader = document.querySelector('.pagination_total');
     if (!resultsHeader) return;
@@ -784,15 +816,24 @@
   function renderSellerResults(result, container) {
     if (!result || !Array.isArray(result.sellers)) return;
     container.innerHTML = '';
+    window.__discogsAnalysisResult = result; // keep last result
     result.sellers.forEach((seller, idx) => {
       const wrapper = document.createElement('div');
       wrapper.className = 'seller-item';
-      const header = document.createElement('div');
+      const header = document.createElement('label');
       header.style.display = 'flex';
       header.style.justifyContent = 'space-between';
       header.style.alignItems = 'center';
+      header.style.cursor = 'pointer';
       const left = document.createElement('div');
-      left.innerHTML = `<strong>${idx + 1}. ${seller.seller}</strong> <span style="color:#666">${seller.sellerRatings || ''}</span>`;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.style.marginRight = '8px';
+      checkbox.checked = currentSelectedSellers && currentSelectedSellers.has(seller.seller);
+      left.appendChild(checkbox);
+      const nameSpan = document.createElement('span');
+      nameSpan.innerHTML = `<strong>${idx + 1}. ${seller.seller}</strong> <span style="color:#666">${seller.sellerRatings || ''}</span>`;
+      left.appendChild(nameSpan);
       const right = document.createElement('div');
       right.innerHTML = `<span style="margin-right:8px">Items: ${seller.count}</span><span>Total: ${seller.totalPrice.toFixed(2)}</span>`;
       header.appendChild(left);
@@ -810,8 +851,14 @@
       });
       details.appendChild(list);
 
-      header.addEventListener('click', () => {
+      nameSpan.addEventListener('click', (e) => {
+        e.preventDefault();
         details.style.display = details.style.display === 'none' ? 'block' : 'none';
+      });
+      checkbox.addEventListener('change', () => {
+        if (!currentSelectedSellers) currentSelectedSellers = new Set();
+        if (checkbox.checked) currentSelectedSellers.add(seller.seller); else currentSelectedSellers.delete(seller.seller);
+        applySellerFilterFromSelection();
       });
 
       wrapper.appendChild(header);
