@@ -201,8 +201,14 @@
       try {
         const listingId = container.getAttribute('data-itemid');
         // release/title
-        const titleLink = container.querySelector('a[href*="/sell/item/"]');
-        const release = titleLink ? titleLink.textContent.trim() : '';
+        // Release/title: prefer product title link next to the image
+        let release = '';
+        const titleLink = container.querySelector('a.text-brand-textLink');
+        if (titleLink) release = titleLink.textContent.trim();
+        if (!release) {
+          const anyTitle = container.querySelector('a[href*="/sell/item/"]');
+          if (anyTitle) release = anyTitle.textContent.trim();
+        }
         // seller block per provided structure
         let seller = '';
         let sellerRatings = '';
@@ -310,14 +316,16 @@
       const hasContent = document.querySelectorAll('div, section, article').length > 10;
       
       if (hasContent) {
-        // Do not auto-scrape; just render UI. User triggers analysis via button.
-        analyzeSellersAndCreateFilter();
+        // Do NOT scan or scrape; just render the shell UI.
+        try {
+          createFilterUI([], {});
+        } catch (e) { console.log(e); }
       } else if (attempt < maxAttempts) {
         console.log(`Not enough content loaded yet, retrying in ${attempt * 1000}ms...`);
         setTimeout(() => tryAnalyze(attempt + 1, maxAttempts), attempt * 1000);
       } else {
         console.log('Max attempts reached, trying anyway...');
-        analyzeSellersAndCreateFilter();
+        try { createFilterUI([], {}); } catch (e) {}
       }
     };
 
@@ -511,10 +519,8 @@
       return;
     }
 
-    // Store data globally for dynamic updates
+    // Store data globally and render minimal UI list
     currentSellerData = { sortedSellers, sellerToListings };
-    
-    // Create the filter UI
     createFilterUI(sortedSellers, sellerToListings);
   }
 
@@ -614,7 +620,7 @@
           return;
         }
         console.log('Analysis result:', json);
-        alert(`Found ${json.totals.numSellers} sellers across ${json.totals.numListings} listings. Top seller: ${json.sellers?.[0]?.seller || 'n/a'}`);
+        renderSellerResults(json, sellersList);
       } catch (err) {
         console.error(err);
         alert('Analysis request failed');
@@ -651,128 +657,42 @@
     header.appendChild(analyzeBtn);
     filterContainer.appendChild(header);
 
-    // Create sellers list
+    // Inline config row
+    const configRow = document.createElement('div');
+    configRow.style.cssText = 'margin:8px 0; display:flex; gap:6px; align-items:center; flex-wrap:wrap;';
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.placeholder = 'Server URL';
+    urlInput.value = getConfiguredServerUrl();
+    urlInput.style.cssText = 'flex:1; min-width:220px; padding:4px 6px; border:1px solid #ccc; border-radius:3px;';
+    const tokenInput = document.createElement('input');
+    tokenInput.type = 'text';
+    tokenInput.placeholder = 'Discogs API token';
+    tokenInput.value = getConfiguredApiToken();
+    tokenInput.style.cssText = 'flex:1; min-width:220px; padding:4px 6px; border:1px solid #ccc; border-radius:3px;';
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.style.cssText = 'background:#374151;color:#fff;border:none;border-radius:3px;padding:4px 8px;cursor:pointer;';
+    saveBtn.addEventListener('click', () => {
+      setConfiguredServerUrl(urlInput.value.trim());
+      setConfiguredApiToken(tokenInput.value.trim());
+    });
+    configRow.appendChild(urlInput);
+    configRow.appendChild(tokenInput);
+    configRow.appendChild(saveBtn);
+    filterContainer.appendChild(configRow);
+
+    // Create sellers list container (empty initially)
     const sellersList = document.createElement('div');
     sellersList.id = 'sellers-list';
     sellersList.className = 'sellers-list';
-
-    // Track selected sellers
-    const selectedSellers = new Set();
-    
-    // Load saved selections from localStorage
-    const savedSelections = localStorage.getItem('discogs-seller-filter-selections');
-    if (savedSelections) {
-      try {
-        const parsed = JSON.parse(savedSelections);
-        parsed.forEach(seller => selectedSellers.add(seller));
-      } catch (e) {
-        console.log('Could not parse saved selections:', e);
-      }
-    }
-
-    // Function to save selections to localStorage
-    function saveSelections() {
-      const selections = Array.from(selectedSellers);
-      localStorage.setItem('discogs-seller-filter-selections', JSON.stringify(selections));
-    }
-
-    // Add "Show All" button
-    const showAllBtn = document.createElement('div');
-    showAllBtn.className = 'seller-item show-all-btn';
-    showAllBtn.innerHTML = `
-      <label>
-        <input type="checkbox" ${selectedSellers.size === 0 ? 'checked' : ''}> 
-        <span class="seller-name">Show All</span>
-      </label>
-    `;
-    sellersList.appendChild(showAllBtn);
-
-    const showAllCheckbox = showAllBtn.querySelector('input');
-    showAllCheckbox.addEventListener('change', () => {
-      if (showAllCheckbox.checked) {
-        // Uncheck all sellers and show everything
-        selectedSellers.clear();
-        currentSelectedSellers.clear();
-        isFilterActive = false;
-        document.querySelectorAll('.seller-item input[type="checkbox"]').forEach(cb => {
-          if (cb !== showAllCheckbox) cb.checked = false;
-        });
-        showAllListings();
-        saveSelections();
-      }
-    });
-
-    // Add each seller
-    sortedSellers.forEach(([seller, count]) => {
-      const sellerItem = document.createElement('div');
-      sellerItem.className = 'seller-item';
-      
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.id = `seller-${seller.replace(/\s+/g, '-')}`;
-      checkbox.checked = selectedSellers.has(seller);
-      
-      const label = document.createElement('label');
-      label.htmlFor = checkbox.id;
-      
-      const sellerName = document.createElement('span');
-      sellerName.className = 'seller-name';
-      sellerName.textContent = seller;
-      
-      const sellerCount = document.createElement('span');
-      sellerCount.className = 'seller-count';
-      sellerCount.textContent = `(${count})`;
-      
-      label.appendChild(checkbox);
-      label.appendChild(sellerName);
-      label.appendChild(sellerCount);
-      sellerItem.appendChild(label);
-      
-      // Add click handler
-      checkbox.addEventListener('change', () => {
-        // Uncheck "Show All"
-        showAllCheckbox.checked = false;
-        
-        if (checkbox.checked) {
-          selectedSellers.add(seller);
-          currentSelectedSellers.add(seller);
-        } else {
-          selectedSellers.delete(seller);
-          currentSelectedSellers.delete(seller);
-        }
-        
-        // Update filter state
-        isFilterActive = selectedSellers.size > 0;
-        
-        // If no sellers selected, check "Show All"
-        if (selectedSellers.size === 0) {
-          showAllCheckbox.checked = true;
-          isFilterActive = false;
-          showAllListings();
-        } else {
-          filterListings(selectedSellers, sellerToListings);
-        }
-        
-        // Save selections
-        saveSelections();
-      });
-      
-      sellersList.appendChild(sellerItem);
-    });
-
     filterContainer.appendChild(sellersList);
 
     // Insert at the top of the sidebar
     sidebar.insertBefore(filterContainer, sidebar.firstChild);
     
-    // Apply saved filters if any
-    if (selectedSellers.size > 0) {
-      filterListings(selectedSellers, sellerToListings);
-    }
-    
-    // Show success message
-    console.log(`Seller filter created successfully with ${sortedSellers.length} sellers`);
-    showUserMessage(`Filter created! Found ${sortedSellers.length} sellers with ${Object.values(sellerToListings).flat().length} total items.`);
+    // Minimal message
+    console.log('Seller filter ready. Use Analyze Sellers to fetch data.');
 
     // Add collapse/expand functionality
     let isExpanded = true;
@@ -859,6 +779,45 @@
       });
       resultsHeader.textContent = `Showing ${totalCount} items (filtered)`;
     }
+  }
+
+  function renderSellerResults(result, container) {
+    if (!result || !Array.isArray(result.sellers)) return;
+    container.innerHTML = '';
+    result.sellers.forEach((seller, idx) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'seller-item';
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+      const left = document.createElement('div');
+      left.innerHTML = `<strong>${idx + 1}. ${seller.seller}</strong> <span style="color:#666">${seller.sellerRatings || ''}</span>`;
+      const right = document.createElement('div');
+      right.innerHTML = `<span style="margin-right:8px">Items: ${seller.count}</span><span>Total: ${seller.totalPrice.toFixed(2)}</span>`;
+      header.appendChild(left);
+      header.appendChild(right);
+
+      const details = document.createElement('div');
+      details.style.display = 'none';
+      details.style.marginTop = '8px';
+      const list = document.createElement('ul');
+      list.style.paddingLeft = '16px';
+      (seller.items || []).forEach(it => {
+        const li = document.createElement('li');
+        li.textContent = `${it.release || '(untitled)'} • ${it.price || ''} + ${it.shipping || ''} • id:${it.listingId}`;
+        list.appendChild(li);
+      });
+      details.appendChild(list);
+
+      header.addEventListener('click', () => {
+        details.style.display = details.style.display === 'none' ? 'block' : 'none';
+      });
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(details);
+      container.appendChild(wrapper);
+    });
   }
 
   // Function to re-analyze sellers when new content is loaded
