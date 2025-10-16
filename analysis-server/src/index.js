@@ -480,9 +480,13 @@ app.post('/optimize', async (req, res) => {
     console.log('Sample normalized items:', items.slice(0, 3))
     console.log('Budget:', budget)
     
-    // Filter out items with price 0
-    const validItems = items.filter(item => (item.priceParsed?.amountUSD || 0) > 0)
-    console.log(`Filtered ${items.length - validItems.length} items with price 0, ${validItems.length} valid items remaining`)
+    // Filter out items with price 0 and ignored releases
+    const validItems = items.filter(item => {
+      const hasValidPrice = (item.priceParsed?.amountUSD || 0) > 0
+      const isNotIgnored = !ignoredReleases.includes(item.release)
+      return hasValidPrice && isNotIgnored
+    })
+    console.log(`Filtered ${items.length - validItems.length} items (price 0 or ignored), ${validItems.length} valid items remaining`)
     
     const optimizationResult = optimizeBudget(validItems, budget)
     console.log('Optimization result summary:', optimizationResult.summary)
@@ -503,7 +507,7 @@ app.post('/optimize-fast', async (req, res) => {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     
     console.log('Received optimize-fast request from origin:', req.headers.origin)
-    const { token, listings, budget } = req.body || {}
+    const { token, listings, budget, ignoredReleases = [] } = req.body || {}
     
     if (!token || typeof token !== 'string' || token.trim().length === 0) {
       return res.status(400).json({ error: 'token required' })
@@ -523,9 +527,13 @@ app.post('/optimize-fast', async (req, res) => {
     console.log('Sample normalized items:', items.slice(0, 3))
     console.log('Budget:', budget)
     
-    // Filter out items with price 0
-    const validItems = items.filter(item => (item.priceParsed?.amountUSD || 0) > 0)
-    console.log(`Filtered ${items.length - validItems.length} items with price 0, ${validItems.length} valid items remaining`)
+    // Filter out items with price 0 and ignored releases
+    const validItems = items.filter(item => {
+      const hasValidPrice = (item.priceParsed?.amountUSD || 0) > 0
+      const isNotIgnored = !ignoredReleases.includes(item.release)
+      return hasValidPrice && isNotIgnored
+    })
+    console.log(`Filtered ${items.length - validItems.length} items (price 0 or ignored), ${validItems.length} valid items remaining`)
     
     const optimizationResult = optimizeBudget(validItems, budget)
     console.log('Optimization result summary:', optimizationResult.summary)

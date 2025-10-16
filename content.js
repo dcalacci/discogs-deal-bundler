@@ -1055,12 +1055,19 @@
 
       showUserMessage(`Scraped ${allScrapedListings.length} listings. Optimizing for budget $${budget}...`, 'info');
 
+      const ignoredReleases = getIgnoredReleases()
+      
       const response = await fetch(`${serverUrl}/optimize-fast`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token: apiToken, listings: allScrapedListings, budget: parseFloat(budget) }),
+        body: JSON.stringify({ 
+          token: apiToken, 
+          listings: allScrapedListings, 
+          budget: parseFloat(budget),
+          ignoredReleases: ignoredReleases
+        }),
       });
 
       if (!response.ok) {
@@ -1133,6 +1140,12 @@
                    style="background:#2196f3;color:white;padding:2px 6px;border-radius:3px;text-decoration:none;font-size:10px;font-weight:bold;">
                   View
                 </a>
+                <button class="ignore-release-btn" 
+                        data-release="${item.release}" 
+                        data-listing-id="${item.listingId}"
+                        style="background:#f44336;color:white;padding:2px 6px;border-radius:3px;border:none;font-size:10px;font-weight:bold;cursor:pointer;">
+                  Ignore
+                </button>
               </div>
             </div>
           `).join('')}
@@ -1140,7 +1153,114 @@
       `;
       sellersList.appendChild(sellerDiv);
     });
+
+    // Add ignore list section
+    addIgnoreListSection();
   }
+
+  function addIgnoreListSection() {
+    const sellersList = document.getElementById('sellers-list');
+    if (!sellersList) return;
+
+    // Check if ignore list already exists
+    if (document.getElementById('ignore-list-section')) return;
+
+    const ignoreSection = document.createElement('div');
+    ignoreSection.id = 'ignore-list-section';
+    ignoreSection.style.cssText = 'margin-top:15px;border-top:2px solid #ddd;padding-top:10px;';
+    
+    const ignoredReleases = getIgnoredReleases();
+    
+    ignoreSection.innerHTML = `
+      <div style="font-weight:bold;color:#f44336;margin-bottom:8px;font-size:13px;">
+        🚫 Ignored Releases (${ignoredReleases.length})
+      </div>
+      <div id="ignored-releases-list" style="max-height:200px;overflow-y:auto;">
+        ${ignoredReleases.length === 0 ? 
+          '<div style="color:#666;font-style:italic;font-size:11px;">No ignored releases</div>' :
+          ignoredReleases.map(release => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f0f0f0;">
+              <span style="font-size:11px;flex:1;">${release}</span>
+              <button class="restore-release-btn" 
+                      data-release="${release}"
+                      style="background:#ff9800;color:white;padding:2px 6px;border-radius:3px;border:none;font-size:10px;cursor:pointer;">
+                Restore
+              </button>
+            </div>
+          `).join('')
+        }
+      </div>
+    `;
+    
+    sellersList.appendChild(ignoreSection);
+    
+    // Add event listeners for ignore/restore buttons
+    addIgnoreButtonListeners();
+  }
+
+  function getIgnoredReleases() {
+    const ignored = localStorage.getItem('discogs-ignored-releases');
+    return ignored ? JSON.parse(ignored) : [];
+  }
+
+  function saveIgnoredReleases(releases) {
+    localStorage.setItem('discogs-ignored-releases', JSON.stringify(releases));
+  }
+
+  function ignoreRelease(releaseName, listingId) {
+    const ignored = getIgnoredReleases();
+    if (!ignored.includes(releaseName)) {
+      ignored.push(releaseName);
+      saveIgnoredReleases(ignored);
+      showUserMessage(`Added "${releaseName}" to ignore list`, 'info');
+      updateIgnoreList();
+    }
+  }
+
+  function removeFromIgnoreList(releaseName) {
+    const ignored = getIgnoredReleases();
+    const filtered = ignored.filter(r => r !== releaseName);
+    saveIgnoredReleases(filtered);
+    showUserMessage(`Removed "${releaseName}" from ignore list`, 'info');
+    updateIgnoreList();
+  }
+
+  function updateIgnoreList() {
+    const ignoreSection = document.getElementById('ignore-list-section');
+    if (ignoreSection) {
+      ignoreSection.remove();
+    }
+    addIgnoreListSection();
+  }
+
+  function addIgnoreButtonListeners() {
+    // Remove existing listeners to avoid duplicates
+    document.removeEventListener('click', handleIgnoreButtonClick);
+    document.removeEventListener('click', handleRestoreButtonClick);
+    
+    // Add new listeners
+    document.addEventListener('click', handleIgnoreButtonClick);
+    document.addEventListener('click', handleRestoreButtonClick);
+  }
+
+  function handleIgnoreButtonClick(event) {
+    if (event.target.classList.contains('ignore-release-btn')) {
+      const release = event.target.getAttribute('data-release');
+      const listingId = event.target.getAttribute('data-listing-id');
+      ignoreRelease(release, listingId);
+    }
+  }
+
+  function handleRestoreButtonClick(event) {
+    if (event.target.classList.contains('restore-release-btn')) {
+      const release = event.target.getAttribute('data-release');
+      removeFromIgnoreList(release);
+    }
+  }
+
+  // Make functions globally available
+  window.ignoreRelease = ignoreRelease;
+  window.removeFromIgnoreList = removeFromIgnoreList;
 
   // Initialize when DOM is ready
   if (document.readyState === 'loading') {
