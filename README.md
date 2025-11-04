@@ -1,99 +1,200 @@
-# Discogs Seller Filter Chrome Extension
+# Discogs Seller Filter & Budget Optimizer
 
-Filter your Discogs wantlist by sellers who have the most of your wanted items!
+A Chrome extension that helps you find the best deals on your Discogs wantlist by analyzing sellers and optimizing purchases within your budget.
 
 ## Features
 
-- **Automatic seller analysis**: Counts how many of your wanted items each seller has
-- **Sorted by quantity**: Sellers are listed from most items to least
-- **Easy filtering**: Click checkboxes to show only items from specific sellers
-- **Multiple selection**: Select multiple sellers to see combined results
-- **Clean UI**: Integrates seamlessly with Discogs' existing sidebar
+### 🎯 Budget Optimization
+- **Smart Budget Allocation**: Find the best combination of releases within your budget
+- **Shipping Optimization**: Accounts for shipping costs (paid once per seller)
+- **Currency Conversion**: Real-time conversion of prices to USD
+- **Release Deduplication**: Ensures you don't buy the same release twice
+
+### 🚫 Ignore List
+- **Custom Filtering**: Ignore releases you don't want to see
+- **Persistent Storage**: Your ignore list persists between sessions
+- **Easy Management**: Simple restore functionality
+
+### 📊 Seller Analysis
+- **Seller Rankings**: See which sellers have the most items from your wantlist
+- **Price Analysis**: Compare total costs including shipping
+- **Efficiency Metrics**: Items per dollar calculations
+
+### 🔄 Real-time Data
+- **Live Scraping**: Automatically scrapes all pages of your wantlist
+- **Dynamic Updates**: Responds to pagination and new listings
+- **Cached Results**: Server-side caching for faster subsequent requests
 
 ## Installation
 
-### Option 1: Load Unpacked Extension (For Development)
+### Chrome Extension
 
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (toggle in the top right)
-3. Click "Load unpacked"
-4. Select the `discogs-seller-filter` folder
-5. The extension is now installed!
+1. **Download the extension files**
+2. **Open Chrome Extensions page**: `chrome://extensions/`
+3. **Enable Developer Mode** (toggle in top right)
+4. **Click "Load unpacked"** and select the `discogs-seller-filter` directory
+5. **Pin the extension** to your toolbar for easy access
 
-### Option 2: Create Icons First (Recommended)
+### Analysis Server
 
-Before loading the extension, you should create icon files:
+1. **Navigate to server directory**:
+   ```bash
+   cd analysis-server
+   ```
 
-1. Create two PNG images named `icon48.png` and `icon128.png`
-2. Place them in the extension folder
-3. These can be simple icons (you can use any image editor or online icon generator)
-4. Then follow Option 1 steps above
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
 
-**Note**: If you don't create icons, you can remove the "icons" section from `manifest.json` or the extension may show warnings (but will still work).
+3. **Start the server**:
+   ```bash
+   npm start
+   ```
+
+4. **Server runs on**: `http://localhost:4002`
 
 ## Usage
 
-1. Navigate to your Discogs wantlist shopping page: https://www.discogs.com/shop/mywants
-2. Wait for the page to load completely
-3. Look for the new "Filter by Seller" section at the top of the left sidebar
-4. You'll see all sellers listed with item counts in parentheses, e.g., "SellerName (5)"
-5. Click checkboxes next to seller names to filter the listings
-6. Use "Show All" to clear filters and see everything again
+### 1. Setup
+1. **Go to Discogs**: Navigate to `https://www.discogs.com/shop/mywants`
+2. **Open Extension**: Click the extension icon in your browser toolbar
+3. **Configure Server**: Enter your analysis server URL (e.g., `http://localhost:4002`)
+4. **Add API Token**: Enter your Discogs API token
 
-## How It Works
+### 2. Analyze Sellers
+1. **Click "Analyze Sellers"** to scrape all listings from your wantlist
+2. **Wait for completion** - the extension will automatically paginate through all results
+3. **View results** - see seller rankings and item counts
 
-The extension:
-1. Scans all marketplace listings on the mywants page
-2. Extracts seller information from each listing
-3. Counts items per seller and sorts them
-4. Creates an interactive filter in the sidebar
-5. Shows/hides listings based on your selections
+### 3. Budget Optimization
+1. **Set your budget** using the slider
+2. **Click "🎯 Find Best Deals"** to run optimization
+3. **Review results** - see optimized selections with costs and efficiency
+4. **Use action buttons**:
+   - **Add to Cart**: Direct link to add items to Discogs cart
+   - **View**: View the listing on Discogs
+   - **Ignore**: Add release to ignore list
+
+### 4. Manage Ignore List
+- **View ignored releases** in the section below seller results
+- **Restore releases** by clicking the "Restore" button
+- **Ignored releases** are automatically excluded from future optimizations
+
+## API Configuration
+
+### Discogs API Token
+1. **Go to Discogs Settings**: `https://www.discogs.com/settings/developers`
+2. **Create Personal Access Token**
+3. **Copy the token** and paste it into the extension settings
+
+### Server Configuration
+- **Default URL**: `http://localhost:4002`
+- **Custom Server**: Use ngrok or deploy to your preferred hosting service
+- **CORS**: Server is configured to accept requests from `discogs.com`
+
+## Technical Details
+
+### Chrome Extension
+- **Content Script**: Injects UI into Discogs pages
+- **Local Storage**: Persists settings and ignore list
+- **Event Delegation**: Handles dynamic button clicks
+- **Scraping**: Automatically handles pagination and new content
+
+### Analysis Server
+- **Express.js**: REST API server
+- **Currency Conversion**: Real-time exchange rates from `exchangerate-api.com`
+- **Caching**: In-memory and disk-based caching for API responses
+- **Rate Limiting**: Handles Discogs API rate limits with exponential backoff
+
+### Data Flow
+1. **Extension scrapes** wantlist data from Discogs
+2. **Data sent to server** for analysis and optimization
+3. **Server processes** data with currency conversion and optimization algorithms
+4. **Results displayed** in extension with interactive buttons
+
+## File Structure
+
+```
+discogs-seller-filter/
+├── manifest.json          # Chrome extension configuration
+├── content.js            # Main extension logic
+├── styles.css           # Extension styling
+├── analysis-server/     # Node.js analysis server
+│   ├── src/
+│   │   └── index.js     # Express server with optimization logic
+│   ├── package.json     # Server dependencies
+│   └── listing-cache.json # Cached API responses
+└── README.md           # This file
+```
+
+## Optimization Algorithm
+
+The budget optimization uses a **greedy approach**:
+
+1. **Group by seller** to handle shipping costs properly
+2. **Calculate efficiency** (items per dollar) for each seller combination
+3. **Sort by efficiency** to prioritize best deals
+4. **Select combinations** that fit within budget
+5. **Ensure uniqueness** - no duplicate releases selected
+6. **Account for shipping** - paid once per seller
 
 ## Troubleshooting
 
-**Filter doesn't appear:**
-- Make sure you're on the correct page (https://www.discogs.com/shop/mywants)
-- Refresh the page
-- Check if there are any items in your wantlist
-- Open Chrome DevTools (F12) and check the Console for any errors
+### Extension Issues
+- **"No marketplace listings found"**: Ensure you're on the correct Discogs page
+- **Buttons not working**: Check that the server is running and accessible
+- **CORS errors**: Verify server URL and CORS configuration
 
-**Sellers not detected:**
-- The page structure may have changed - the extension looks for `.shortcut_navigable` listings
-- Check if Discogs has updated their HTML structure
+### Server Issues
+- **Port conflicts**: Change port in `analysis-server/src/index.js`
+- **API rate limits**: Server handles this automatically with caching
+- **Currency conversion**: Check internet connection for exchange rate API
 
-**Filter disappears on page navigation:**
-- The extension should automatically reinitialize, but you may need to refresh
+### Performance
+- **Slow optimization**: Large wantlists may take time to process
+- **Memory usage**: Server caches data for faster subsequent requests
+- **Browser performance**: Extension uses efficient event delegation
 
 ## Development
 
-To modify the extension:
+### Running Tests
+```bash
+cd analysis-server
+npm test
+```
 
-1. Edit `content.js` to change functionality
-2. Edit `styles.css` to change appearance
-3. After making changes, go to `chrome://extensions/` and click the reload icon for this extension
+### Server Endpoints
+- `POST /analyze` - Basic seller analysis
+- `POST /optimize` - Budget optimization with API data
+- `POST /optimize-fast` - Budget optimization with scraped data
+- `GET /health` - Server health check
 
-## Files
+### Extension Development
+- **Reload extension** after making changes
+- **Check console** for debugging information
+- **Test on different Discogs pages** to ensure compatibility
 
-- `manifest.json`: Extension configuration
-- `content.js`: Main functionality (seller counting and filtering logic)
-- `styles.css`: Visual styling for the filter UI
-- `README.md`: This file
+## Contributing
 
-## Privacy
-
-This extension:
-- Only runs on discogs.com/shop/mywants pages
-- Does not collect or transmit any data
-- Does not require any special permissions
-- Only reads and modifies the page you're viewing locally
+1. **Fork the repository**
+2. **Create a feature branch**
+3. **Make your changes**
+4. **Test thoroughly**
+5. **Submit a pull request**
 
 ## License
 
-Free to use and modify for personal use.
+MIT License - see LICENSE file for details
 
-## Version History
+## Support
 
-- **1.0**: Initial release
-  - Seller counting and sorting
-  - Checkbox filtering
-  - Clean sidebar UI integration
+For issues and questions:
+1. **Check the troubleshooting section**
+2. **Review console logs** for error messages
+3. **Verify server connectivity**
+4. **Test with a small budget** first
+
+---
+
+**Happy record hunting! 🎵**
